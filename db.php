@@ -5,7 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 $host = 'mysql-1c3c0ac3-aichitectureportfolio.c.aivencloud.com';
 $user = 'avnadmin';
-$pass = '';
+$pass = 'AVNS_pTQkXotVlqOKIcrzcmg';
 $db_name = 'defaultdb';
 $Port='17617';
 $conn = new mysqli($host, $user, $pass);
