@@ -2,11 +2,36 @@
 
 ob_start();
 
+/*
+|--------------------------------------------------------------------------
+| ERROR REPORTING
+|--------------------------------------------------------------------------
+*/
+
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
+
+/*
+|--------------------------------------------------------------------------
+| DATABASE CONNECTION
+|--------------------------------------------------------------------------
+*/
+
 include 'db.php';
+
+
+/*
+|--------------------------------------------------------------------------
+| SESSION
+|--------------------------------------------------------------------------
+*/
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 
 /*
 |--------------------------------------------------------------------------
@@ -19,6 +44,7 @@ if (
     !isset($_SESSION['role']) ||
     $_SESSION['role'] !== 'architect'
 ) {
+
     header("Location: login.php");
     exit;
 }
@@ -54,6 +80,12 @@ if (
     $image_path = "";
 
 
+    /*
+    |--------------------------------------------------------------------------
+    | VALIDATE TEXT INFORMATION
+    |--------------------------------------------------------------------------
+    */
+
     if (
         $title === "" ||
         $category === "" ||
@@ -64,7 +96,15 @@ if (
         $error_msg =
             "Tafadhali jaza taarifa zote za project.";
 
-    } elseif (
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | CHECK IMAGE
+    |--------------------------------------------------------------------------
+    */
+
+    elseif (
         !isset($_FILES['design_image']) ||
         $_FILES['design_image']['error'] !== UPLOAD_ERR_OK
     ) {
@@ -72,160 +112,338 @@ if (
         $error_msg =
             "Tafadhali chagua picha ya architectural design.";
 
-    } else {
+    }
+
+    else {
 
         /*
         |--------------------------------------------------------------------------
-        | IMAGE UPLOAD
+        | UPLOAD DIRECTORY
         |--------------------------------------------------------------------------
         */
 
         $target_dir = "portfolio_uploads/";
 
+
+        /*
+        |--------------------------------------------------------------------------
+        | CREATE DIRECTORY IF NOT EXISTS
+        |--------------------------------------------------------------------------
+        */
+
         if (!is_dir($target_dir)) {
 
-            mkdir($target_dir, 0777, true);
+            if (!mkdir($target_dir, 0755, true)) {
+
+                $error_msg =
+                    "Folder la kuhifadhi picha halikuweza kutengenezwa.";
+
+            }
         }
 
 
-        $original_name =
-            $_FILES['design_image']['name'];
+        /*
+        |--------------------------------------------------------------------------
+        | CONTINUE ONLY IF DIRECTORY IS READY
+        |--------------------------------------------------------------------------
+        */
 
-        $tmp_name =
-            $_FILES['design_image']['tmp_name'];
+        if ($error_msg === "") {
 
-        $file_size =
-            $_FILES['design_image']['size'];
+            $original_name =
+                $_FILES['design_image']['name'];
 
+            $tmp_name =
+                $_FILES['design_image']['tmp_name'];
 
-        $extension =
-            strtolower(
-                pathinfo(
-                    $original_name,
-                    PATHINFO_EXTENSION
-                )
-            );
-
-
-        $allowed_extensions = [
-            'jpg',
-            'jpeg',
-            'png',
-            'webp'
-        ];
+            $file_size =
+                $_FILES['design_image']['size'];
 
 
-        if (
-            !in_array(
-                $extension,
-                $allowed_extensions,
-                true
-            )
-        ) {
+            /*
+            |--------------------------------------------------------------------------
+            | GET FILE EXTENSION
+            |--------------------------------------------------------------------------
+            */
 
-            $error_msg =
-                "Aina ya picha hairuhusiwi. Tumia JPG, JPEG, PNG au WEBP.";
-
-        } elseif ($file_size > 5 * 1024 * 1024) {
-
-            $error_msg =
-                "Picha ni kubwa sana. Maximum ni 5MB.";
-
-        } else {
-
-            $new_filename =
-                time() .
-                "_" .
-                uniqid() .
-                "." .
-                $extension;
-
-
-            $target_file =
-                $target_dir .
-                $new_filename;
-
-
-            if (
-                move_uploaded_file(
-                    $tmp_name,
-                    $target_file
-                )
-            ) {
-
-                $image_path =
-                    $target_file;
-
-
-                /*
-                |--------------------------------------------------------------------------
-                | SAVE DESIGN TO DATABASE
-                |--------------------------------------------------------------------------
-                */
-
-                $stmt = $conn->prepare(
-                    "INSERT INTO designs
-                    (
-                        title,
-                        category,
-                        description,
-                        image_path,
-                        estimated_cost
+            $extension =
+                strtolower(
+                    pathinfo(
+                        $original_name,
+                        PATHINFO_EXTENSION
                     )
-                    VALUES (?, ?, ?, ?, ?)"
                 );
 
 
-                if ($stmt) {
+            /*
+            |--------------------------------------------------------------------------
+            | ALLOWED EXTENSIONS
+            |--------------------------------------------------------------------------
+            */
 
-                    $stmt->bind_param(
-                        "sssss",
-                        $title,
-                        $category,
-                        $desc,
-                        $image_path,
-                        $cost
-                    );
-
-
-                    if ($stmt->execute()) {
-
-                        $upload_msg =
-                            "Mradi mpya umepakiwa na kuwekwa kwenye Portfolio kwa mafanikio!";
-
-                    } else {
-
-                        $error_msg =
-                            "Database error: Mradi haukuweza kuhifadhiwa.";
-
-                        /*
-                        | Delete uploaded image if DB failed
-                        */
-
-                        if (file_exists($target_file)) {
-
-                            unlink($target_file);
-                        }
-                    }
+            $allowed_extensions = [
+                'jpg',
+                'jpeg',
+                'png',
+                'webp'
+            ];
 
 
-                    $stmt->close();
+            /*
+            |--------------------------------------------------------------------------
+            | MAXIMUM FILE SIZE
+            |
+            | 15 MB PER IMAGE
+            |--------------------------------------------------------------------------
+            */
 
-                } else {
+            $max_file_size =
+                15 * 1024 * 1024;
 
-                    $error_msg =
-                        "Database statement haikuweza kutengenezwa.";
 
-                    if (file_exists($target_file)) {
+            /*
+            |--------------------------------------------------------------------------
+            | CHECK EXTENSION
+            |--------------------------------------------------------------------------
+            */
 
-                        unlink($target_file);
-                    }
-                }
-
-            } else {
+            if (
+                !in_array(
+                    $extension,
+                    $allowed_extensions,
+                    true
+                )
+            ) {
 
                 $error_msg =
-                    "Picha haikuweza kupakiwa kwenye server.";
+                    "Aina ya picha hairuhusiwi. Tumia JPG, JPEG, PNG au WEBP.";
+
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | CHECK FILE SIZE
+            |--------------------------------------------------------------------------
+            */
+
+            elseif (
+                $file_size > $max_file_size
+            ) {
+
+                $error_msg =
+                    "Picha ni kubwa sana. Maximum inayoruhusiwa ni 15MB.";
+
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | CHECK EMPTY FILE
+            |--------------------------------------------------------------------------
+            */
+
+            elseif ($file_size <= 0) {
+
+                $error_msg =
+                    "Picha uliyochagua haina data.";
+
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | VERIFY REAL MIME TYPE
+            |--------------------------------------------------------------------------
+            */
+
+            else {
+
+                $finfo =
+                    new finfo(FILEINFO_MIME_TYPE);
+
+                $mime_type =
+                    $finfo->file($tmp_name);
+
+
+                $allowed_mime_types = [
+                    'image/jpeg',
+                    'image/png',
+                    'image/webp'
+                ];
+
+
+                if (
+                    !in_array(
+                        $mime_type,
+                        $allowed_mime_types,
+                        true
+                    )
+                ) {
+
+                    $error_msg =
+                        "File uliyochagua si picha halali.";
+
+                }
+
+                else {
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | GENERATE UNIQUE FILE NAME
+                    |--------------------------------------------------------------------------
+                    */
+
+                    try {
+
+                        $random_name =
+                            bin2hex(
+                                random_bytes(8)
+                            );
+
+                    } catch (Exception $e) {
+
+                        $random_name =
+                            uniqid();
+
+                    }
+
+
+                    $new_filename =
+                        'design_' .
+                        date('Ymd_His') .
+                        '_' .
+                        $random_name .
+                        '.' .
+                        $extension;
+
+
+                    $target_file =
+                        $target_dir .
+                        $new_filename;
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | MOVE UPLOADED IMAGE
+                    |--------------------------------------------------------------------------
+                    */
+
+                    if (
+                        move_uploaded_file(
+                            $tmp_name,
+                            $target_file
+                        )
+                    ) {
+
+                        $image_path =
+                            $target_file;
+
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | SAVE DESIGN TO DATABASE
+                        |
+                        | NO EXPIRY
+                        | NO AUTO HIDE
+                        |--------------------------------------------------------------------------
+                        */
+
+                        $stmt =
+                            $conn->prepare(
+                                "INSERT INTO designs
+                                (
+                                    title,
+                                    category,
+                                    description,
+                                    image_path,
+                                    estimated_cost
+                                )
+                                VALUES (?, ?, ?, ?, ?)"
+                            );
+
+
+                        if ($stmt) {
+
+                            $stmt->bind_param(
+                                "sssss",
+                                $title,
+                                $category,
+                                $desc,
+                                $image_path,
+                                $cost
+                            );
+
+
+                            if ($stmt->execute()) {
+
+                                $upload_msg =
+                                    "Mradi mpya umepakiwa kwa mafanikio na utaendelea kuonekana kwenye Portfolio mpaka Admin atakapoufuta.";
+
+                            }
+
+                            else {
+
+                                $error_msg =
+                                    "Database error: Mradi haukuweza kuhifadhiwa.";
+
+
+                                /*
+                                |--------------------------------------------------------------------------
+                                | DELETE FILE IF DATABASE FAILED
+                                |--------------------------------------------------------------------------
+                                */
+
+                                if (
+                                    file_exists(
+                                        $target_file
+                                    )
+                                ) {
+
+                                    unlink(
+                                        $target_file
+                                    );
+                                }
+                            }
+
+
+                            $stmt->close();
+
+                        }
+
+                        else {
+
+                            $error_msg =
+                                "Database statement haikuweza kutengenezwa.";
+
+
+                            /*
+                            |--------------------------------------------------------------------------
+                            | DELETE FILE IF STATEMENT FAILED
+                            |--------------------------------------------------------------------------
+                            */
+
+                            if (
+                                file_exists(
+                                    $target_file
+                                )
+                            ) {
+
+                                unlink(
+                                    $target_file
+                                );
+                            }
+                        }
+
+                    }
+
+                    else {
+
+                        $error_msg =
+                            "Picha haikuweza kupakiwa kwenye server.";
+
+                    }
+                }
             }
         }
     }
@@ -244,14 +462,26 @@ if (
 ) {
 
     $order_id =
-        intval($_POST['order_id'] ?? 0);
+        intval(
+            $_POST['order_id'] ?? 0
+        );
 
     $status =
-        trim($_POST['status_update'] ?? '');
+        trim(
+            $_POST['status_update'] ?? ''
+        );
 
     $reply =
-        trim($_POST['architect_reply'] ?? '');
+        trim(
+            $_POST['architect_reply'] ?? ''
+        );
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | VALIDATE ORDER RESPONSE
+    |--------------------------------------------------------------------------
+    */
 
     if (
         $order_id <= 0 ||
@@ -262,14 +492,18 @@ if (
         $error_msg =
             "Tafadhali chagua status na uandike ujumbe kwa mteja.";
 
-    } else {
+    }
 
-        $stmt = $conn->prepare(
-            "UPDATE orders
-             SET status = ?,
-                 architect_reply = ?
-             WHERE id = ?"
-        );
+    else {
+
+        $stmt =
+            $conn->prepare(
+                "UPDATE orders
+                 SET
+                    status = ?,
+                    architect_reply = ?
+                 WHERE id = ?"
+            );
 
 
         if ($stmt) {
@@ -287,7 +521,9 @@ if (
                 $process_msg =
                     "Majibu yako yamehifadhiwa na kutumwa kwa mteja husika.";
 
-            } else {
+            }
+
+            else {
 
                 $error_msg =
                     "Samahani, majibu hayakuweza kuhifadhiwa.";
@@ -296,7 +532,9 @@ if (
 
             $stmt->close();
 
-        } else {
+        }
+
+        else {
 
             $error_msg =
                 "Database error wakati wa kusasisha order.";
@@ -311,19 +549,20 @@ if (
 |--------------------------------------------------------------------------
 */
 
-$orders_res = $conn->query(
-    "SELECT
-        o.*,
-        u.fullname,
-        u.email,
-        d.title AS design_title
-     FROM orders o
-     JOIN users u
-        ON o.customer_id = u.id
-     JOIN designs d
-        ON o.design_id = d.id
-     ORDER BY o.id DESC"
-);
+$orders_res =
+    $conn->query(
+        "SELECT
+            o.*,
+            u.fullname,
+            u.email,
+            d.title AS design_title
+         FROM orders o
+         JOIN users u
+            ON o.customer_id = u.id
+         JOIN designs d
+            ON o.design_id = d.id
+         ORDER BY o.id DESC"
+    );
 
 ?>
 
@@ -790,6 +1029,33 @@ $orders_res = $conn->query(
 
         /*
         |--------------------------------------------------------------------------
+        | UPLOAD INFO
+        |--------------------------------------------------------------------------
+        */
+
+        .upload-info {
+
+            background: #0f172a;
+
+            border:
+                1px solid #334155;
+
+            padding: 10px;
+
+            border-radius: 6px;
+
+            margin-top: 10px;
+
+            color: #94a3b8;
+
+            font-size: 12px;
+
+            line-height: 1.6;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
         | MOBILE
         |--------------------------------------------------------------------------
         */
@@ -912,13 +1178,20 @@ $orders_res = $conn->query(
             Logout
 
         </a>
-        <a href="admin_contact.php">
-    📞 Manage Contact
-</a>
 
-<a href="admin_delete_design.php">
-    🗑️ Delete Designs
-</a>
+
+        <a href="admin_contact.php">
+
+            📞 Manage Contact
+
+        </a>
+
+
+        <a href="admin_delete_design.php">
+
+            🗑️ Delete Designs
+
+        </a>
 
     </div>
 
@@ -942,6 +1215,7 @@ $orders_res = $conn->query(
 
     <div class="panel-uploader">
 
+
         <h3
             style="
                 margin-top:0;
@@ -961,6 +1235,7 @@ $orders_res = $conn->query(
             <div class="msg-box">
 
                 ✓
+
                 <?= htmlspecialchars($upload_msg) ?>
 
             </div>
@@ -973,6 +1248,7 @@ $orders_res = $conn->query(
             <div class="error-box">
 
                 ⚠️
+
                 <?= htmlspecialchars($error_msg) ?>
 
             </div>
@@ -985,6 +1261,7 @@ $orders_res = $conn->query(
             enctype="multipart/form-data"
         >
 
+
             <input
                 type="hidden"
                 name="upload_work"
@@ -993,8 +1270,11 @@ $orders_res = $conn->query(
 
 
             <label>
+
                 Project Title
+
             </label>
+
 
             <input
                 type="text"
@@ -1005,33 +1285,53 @@ $orders_res = $conn->query(
 
 
             <label>
+
                 Category
+
             </label>
 
-            <select name="category" required>
+
+            <select
+                name="category"
+                required
+            >
 
                 <option value="Residential Building">
+
                     Residential House / Mjengo wa Familia
+
                 </option>
+
 
                 <option value="Commercial Complex">
+
                     Commercial Hub / Majengo ya Biashara
+
                 </option>
+
 
                 <option value="Church Structure">
+
                     Church Assembly / Majengo ya Ibada
+
                 </option>
 
+
                 <option value="Modern Office Structure">
+
                     Corporate Space / Maofisi
+
                 </option>
 
             </select>
 
 
             <label>
+
                 Specifications Description
+
             </label>
+
 
             <textarea
                 name="description"
@@ -1041,8 +1341,11 @@ $orders_res = $conn->query(
 
 
             <label>
+
                 Estimated Construction Cost
+
             </label>
+
 
             <input
                 type="text"
@@ -1053,15 +1356,36 @@ $orders_res = $conn->query(
 
 
             <label>
+
                 Upload Architectural Render Drawing
+
             </label>
+
 
             <input
                 type="file"
                 name="design_image"
-                accept=".jpg,.jpeg,.png,.webp,image/*"
+                accept=".jpg,.jpeg,.png,.webp"
                 required
             >
+
+
+            <div class="upload-info">
+
+                📁 <strong>Allowed:</strong>
+                JPG, JPEG, PNG, WEBP
+
+                <br>
+
+                📦 <strong>Maximum:</strong>
+                15MB per image
+
+                <br>
+
+                ♾️ <strong>Visibility:</strong>
+                Project itabaki kwenye Portfolio mpaka Admin atakapofuta.
+
+            </div>
 
 
             <button
@@ -1086,6 +1410,7 @@ $orders_res = $conn->query(
 
     <div class="panel-orders">
 
+
         <h3
             style="
                 margin-top:0;
@@ -1105,6 +1430,7 @@ $orders_res = $conn->query(
             <div class="msg-box">
 
                 ✓
+
                 <?= htmlspecialchars($process_msg) ?>
 
             </div>
@@ -1119,16 +1445,22 @@ $orders_res = $conn->query(
 
 
             <?php while (
-                $ord = $orders_res->fetch_assoc()
+                $ord =
+                    $orders_res->fetch_assoc()
             ): ?>
 
 
                 <div class="order-card">
 
 
-                    <!-- ORDER HEADER -->
+                    <!--
+                    |--------------------------------------------------------------------------
+                    | ORDER HEADER
+                    |--------------------------------------------------------------------------
+                    -->
 
                     <div class="order-header">
+
 
                         <div>
 
@@ -1197,13 +1529,21 @@ $orders_res = $conn->query(
                     </div>
 
 
-                    <!-- CUSTOMER DETAILS -->
+                    <!--
+                    |--------------------------------------------------------------------------
+                    | CUSTOMER DETAILS
+                    |--------------------------------------------------------------------------
+                    -->
 
                     <div class="customer-info">
 
+
                         <strong>
+
                             Mteja:
+
                         </strong>
+
 
                         <?= htmlspecialchars(
                             $ord['fullname']
@@ -1215,8 +1555,11 @@ $orders_res = $conn->query(
 
 
                         <strong>
+
                             Email:
+
                         </strong>
+
 
                         <small
                             style="color:#38bdf8;"
@@ -1234,8 +1577,11 @@ $orders_res = $conn->query(
 
 
                         <strong>
+
                             Plot Size:
+
                         </strong>
+
 
                         <?= htmlspecialchars(
                             $ord['plot_size']
@@ -1247,8 +1593,11 @@ $orders_res = $conn->query(
 
 
                         <strong>
+
                             Maelekezo:
+
                         </strong>
+
 
                         <span
                             style="
@@ -1266,6 +1615,7 @@ $orders_res = $conn->query(
 
                         </span>
 
+
                     </div>
 
 
@@ -1279,6 +1629,7 @@ $orders_res = $conn->query(
                         method="POST"
                         class="order-form"
                     >
+
 
                         <input
                             type="hidden"
@@ -1300,58 +1651,85 @@ $orders_res = $conn->query(
 
                         <div class="form-group">
 
+
                             <label>
+
                                 Action
+
                             </label>
+
 
                             <select
                                 name="status_update"
                                 required
                             >
 
+
                                 <option
                                     value="Approved / Under Design Task"
+
                                     <?php
+
                                     if (
                                         ($ord['status'] ?? '') ===
                                         'Approved / Under Design Task'
                                     ) {
+
                                         echo 'selected';
+
                                     }
+
                                     ?>
                                 >
+
                                     Approve Request ✔
+
                                 </option>
 
 
                                 <option
                                     value="Declined Spec Requirements"
+
                                     <?php
+
                                     if (
                                         ($ord['status'] ?? '') ===
                                         'Declined Spec Requirements'
                                     ) {
+
                                         echo 'selected';
+
                                     }
+
                                     ?>
                                 >
+
                                     Decline Request ✖
+
                                 </option>
 
 
                                 <option
                                     value="Pending Review"
+
                                     <?php
+
                                     if (
                                         ($ord['status'] ?? '') ===
                                         'Pending Review'
                                     ) {
+
                                         echo 'selected';
+
                                     }
+
                                     ?>
                                 >
+
                                     Keep Pending ⏳
+
                                 </option>
+
 
                             </select>
 
@@ -1360,24 +1738,31 @@ $orders_res = $conn->query(
 
                         <!--
                         |--------------------------------------------------------------------------
-                        | THIS WAS THE BROKEN LINE
+                        | ARCHITECT RESPONSE
                         |--------------------------------------------------------------------------
                         -->
 
                         <div class="form-group">
 
+
                             <label>
+
                                 Your Response Message
+
                             </label>
+
 
                             <input
                                 type="text"
                                 name="architect_reply"
+
                                 value="<?= htmlspecialchars(
                                     $ord['architect_reply']
                                     ?? ''
                                 ) ?>"
+
                                 placeholder="Andika maoni yako hapa..."
+
                                 required
                             >
 
@@ -1395,7 +1780,9 @@ $orders_res = $conn->query(
 
                         </button>
 
+
                     </form>
+
 
                 </div>
 
@@ -1423,6 +1810,7 @@ $orders_res = $conn->query(
 
         <?php endif; ?>
 
+
     </div>
 
 </div>
@@ -1439,7 +1827,9 @@ $orders_res = $conn->query(
     System designed by
 
     <strong>
+
         Engineer Misangu Kabizi
+
     </strong>
 
     (0754339127)
@@ -1447,7 +1837,9 @@ $orders_res = $conn->query(
     at
 
     <strong>
+
         MUST
+
     </strong>
 
 </div>
@@ -1457,8 +1849,10 @@ $orders_res = $conn->query(
 
 </html>
 
+
 <?php
 
 ob_end_flush();
 
 ?>
+
